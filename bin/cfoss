@@ -1,0 +1,27 @@
+#!/bin/bash
+
+[[ -z $WRITE_OSSLIST ]] && WRITE_OSSLIST=y
+
+
+OSS_URL_PREFIX="https://pub-714f8d634e8f451d9f2fe91a4debfa23.r2.dev"
+
+touch "$HOME/.config/cfoss.conf"
+source "$HOME/.config/cfoss.conf"
+
+[[ "$AltDomain" == y ]] && OSS_URL_PREFIX="https://oss-r2.neruthes.xyz"
+
+### Now we use wrangler and not aws cli so no config-reading
+
+
+source $(dirname $0)/libossupload-core.lib.sh
+
+
+S3_ARGS="--endpoint-url $S3_ENDPOINT --bucket oss"
+
+if [[ -e "$1" ]]; then
+    # aws s3api put-object  --body "$1"  --key "$FIANL_OBJ_KEY"  $S3_ARGS
+    wrangler2 r2 object put oss/"$FIANL_OBJ_KEY" -f "$1" --remote
+else
+    echo "[ERROR] Cannot find the input file."
+fi
+

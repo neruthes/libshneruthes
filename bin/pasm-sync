@@ -1,0 +1,9 @@
+#!/bin/bash
+
+pasm syncout
+cd $HOME/.config/password-manager/repo
+git pull origin master
+git add .
+git commit -m "pasm sync $(date -Is)"
+git push origin master
+pasm syncin

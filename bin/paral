@@ -1,0 +1,61 @@
+#!/bin/bash
+
+[[ -z "$PARAL_LIMIT" ]] && export PARAL_LIMIT="$(cat /proc/cpuinfo | grep -E 'processor\s*:' | wc -l)"
+if [[ -z "$PARAL_ORIGIN_PID" ]]; then
+    export PARAL_ORIGIN_PID="$(ps -p $$ -o ppid= | tr -d ' ')"
+    echo "$PARAL_ORIGIN_PID" >> "/tmp/.paral_tcflist.$USER"
+    export PARAL_TCF="/tmp/.paral_threads.$USER.$PARAL_ORIGIN_PID"        # TCF: Thread controlling file
+fi
+
+[[ -z "$STDOUT_FDPATH" ]] && export STDOUT_FDPATH="/proc/$PARAL_ORIGIN_PID/fd/1"
+[[ -z "$STDERR_FDPATH" ]] && export STDERR_FDPATH="/proc/$PARAL_ORIGIN_PID/fd/2"
+
+if [[ ! -e "$PARAL_TCF" ]] || [[ -z "$(cat "$PARAL_TCF")" ]]; then
+    echo 0 > "$PARAL_TCF"
+fi
+
+function gc_stale_tcf() {
+    for p in $(cat "/tmp/.paral_tcflist.$USER"); do
+        if [[ ! -e "/proc/$p" ]] && [[ -e "$PARAL_TCF" ]]; then
+            rm -v "$PARAL_TCF"
+            sed -i "s|^$p$|_|" "/tmp/.paral_tcflist.$USER"
+        fi
+    done
+}
+
+function dojob() {
+    tmp_log_file_stdout=/tmp/.paral.tmp_log_file.$$.$RANDOM.stdout.txt
+    tmp_log_file_stderr=/tmp/.paral.tmp_log_file.$$.$RANDOM.stderr.txt
+    "$@" >>"$tmp_log_file_stdout" 2>>"$tmp_log_file_stderr"
+    heap="$(cat "$PARAL_TCF")"
+    echo $((heap-1)) > "$PARAL_TCF"
+    if [[ -e "$STDOUT_FDPATH" ]]; then
+        cat "$tmp_log_file_stdout" >> "$STDOUT_FDPATH"
+        cat "$tmp_log_file_stderr" >> "$STDERR_FDPATH"
+    fi
+}
+
+
+
+
+### GC?
+case $1 in
+    --gc)
+        gc_stale_tcf
+        exit 0
+        ;;
+esac
+
+### Main workflow
+heap="$(cat "$PARAL_TCF")"
+if [[ $heap -lt $PARAL_LIMIT ]]; then
+    echo "**  ($heap/$PARAL_LIMIT) Starting job"
+    echo $((heap+1)) > "$PARAL_TCF"
+    dojob "$@" &
+else
+    echo "**  ($heap/$PARAL_LIMIT) Waitting for another chance..."
+    sleep 1
+    exec bash "$0" "$@"
+fi
+ 
+

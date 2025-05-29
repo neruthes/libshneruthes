@@ -1,0 +1,196 @@
+#!/bin/bash
+
+#########################################################################################
+# The 'ntex' script
+#
+# Copyright 2021-2025 Neruthes (https://neruthes.xyz) (https://github.com/neruthes).
+# Published with the MIT license (https://mit-license.org/).
+#########################################################################################
+
+
+
+
+[[ -z "$XELATEX_CMDNAME" ]] && XELATEX_CMDNAME=xelatex
+
+function die() {
+    echo "$1"
+    exit 1
+}
+### If multiple input files are given, build each
+if [[ -e "$2" ]]; then
+    ITEMS_LIST=()
+    PARAMS_LIST=()
+    for i in "$@"; do
+        if [[ -e "$1" ]]; then
+            ITEMS_LIST+=("$1")
+        else
+            PARAMS_LIST+=("$1")
+        fi
+        shift
+    done
+    for i in "${ITEMS_LIST[@]}"; do
+        ntex "$i" "${PARAMS_LIST[@]}" || die "[ERROR] Failed building $i"
+    done
+    exit 0
+fi
+
+XELATEXARGS="$XELATEXARGS -interaction=nonstopmode"
+
+SYNC_HTTPTMP=y
+#####################################################################
+### Parse arguments. Magic; do not touch.
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --2)
+        BUILD_TWICE="y"
+        shift # past argument
+        ;;
+    --embed)
+        EMBED_TEX_TO_PDF="y"
+        shift # past argument
+        ;;
+    --png)
+        TOIMG="png"
+        shift # past argument
+        ;;
+    --jpg)
+        TOIMG="jpg"
+        shift # past argument
+        ;;
+    --oss)
+        TOCFOSS="y"
+        shift # past argument
+        ;;
+    --range=*)
+        PAGES_RANGE="${1/--range=/}"
+        shift # past argument
+        ;;
+    --rname=*)
+        RANGED_NAME="${1/--rname=/}"
+        shift # past argument
+        ;;
+    --altfn=*)
+        INPUT_ALTFN="${1/--altfn=/}.pdf"
+        shift # past argument
+        ;;
+    --http)
+        PUT_TO_HTTPTMP=y
+        shift # past argument
+        ;;
+    --sync)
+        SYNC_HTTPTMP=y
+        shift # past argument
+        ;;
+    --nosync)
+        SYNC_HTTPTMP=n
+        shift # past argument
+        ;;
+    -*)
+        echo "Unknown option $1"
+        exit 1
+        ;;
+    *)
+        POSITIONAL_ARGS+=("$1") # save positional arg
+        shift # past argument
+        ;;
+  esac
+done
+set -- "${POSITIONAL_ARGS[@]}" # restore positional parameters
+#####################################################################
+
+
+
+InputTexFilePath="$1"
+BaseName="$(basename "$InputTexFilePath")"
+REPOID="$(basename "$PWD")"
+TYPE_SLASH="${InputTexFilePath/$BaseName/}"
+
+# echo "InputTexFilePath=$InputTexFilePath"
+# echo "BaseName=$BaseName"
+# echo "TYPE_SLASH=$TYPE_SLASH"
+
+mkdir -p ".tmp" "_dist/$TYPE_SLASH"
+
+function _realBuild() {
+    $XELATEX_CMDNAME $XELATEXARGS \
+        -output-directory=.tmp \
+        -shell-escape \
+        "$InputTexFilePath"
+}
+_realBuild
+if [[ $BUILD_TWICE == y ]]; then ### Build twice
+    _realBuild
+fi
+
+PDF_TMP_PATH=".tmp/${BaseName/.tex/.pdf}"
+ls "$PDF_TMP_PATH"
+if [[ ! -e "$PDF_TMP_PATH" ]]; then
+    echo "[ERROR] XeLaTeX build failed. Aborting."
+    exit 1
+fi
+mv -f "$PDF_TMP_PATH" "_dist/$TYPE_SLASH"
+
+REALPATH=$(realpath "_dist/${InputTexFilePath/.tex/.pdf}")
+PDFFN="$(basename "$REALPATH")"
+PDF_RELATIVE_PATH="$(sed "s|$PWD/||" <<< "$REALPATH")"
+echo "PDF_RELATIVE_PATH=$PDF_RELATIVE_PATH"
+echo "PDFFN=$PDFFN"
+
+### --embed
+if [[ "$EMBED_TEX_TO_PDF" == y ]]; then
+    # pdf_add_attachment.sh "$REALPATH" "$InputTexFilePath"
+    pdftk "$REALPATH" attach_files "$InputTexFilePath" output "$REALPATH.tmp_attachment.pdf"
+    mv -f "$REALPATH.tmp_attachment.pdf" "$REALPATH"
+fi
+
+echo -e "\nDocument Size:"
+du -h "$REALPATH"
+
+### --http
+if [[ "$PUT_TO_HTTPTMP" == y ]]; then
+    CLASSNAME="$(basename "$PWD")" ALTFN="$INPUT_ALTFN" cptmphttp "$REALPATH"
+fi
+
+### --oss
+if [[ "$TOCFOSS" == y ]]; then
+    ### New oss (Cloudflare R2):
+    touch .osslist
+    echo minoss "$PDF_RELATIVE_PATH"
+    minoss "$PDF_RELATIVE_PATH"
+    cfoss "$PDF_RELATIVE_PATH"
+    sort -u .osslist -o .osslist
+fi
+
+### --jpg | --png
+case "$TOIMG" in
+    jpg|png)
+        # mkdir -p /tmp/http/nteximg
+        # chmod 777 /tmp/http/nteximg
+        FHASH1="$(echo "$REALPATH" | sha256sum)"
+        IMGPATH="$(basename "$REALPATH").$TOIMG"
+        if [[ -e "$IMGPATH" ]]; then
+            rm "$IMGPATH" 2>/dev/null
+        fi
+        # pdftoimg "$REALPATH" /tmp/http/nteximg $TOIMG
+        pdftoimg "$REALPATH" '' "$TOIMG"
+        if [[ $TOCFOSS == y ]]; then
+            echo -e "\nImage URLs:"
+            OSS_SUBDIR="$REPOID-img" cfoss "$IMGPATH"
+        fi
+        ;;
+esac
+
+### --range
+if [[ -n "$PAGES_RANGE" ]]; then
+    echo "Generating ranged subset."
+    # RANGED_PDF_PATH="/tmp/${PDFFN/.pdf/}_page$PAGES_RANGE.pdf"
+    # pdftk "$REALPATH" cat $PAGES_RANGE output "$RANGED_PDF_PATH"
+    # du -h "$RANGED_PDF_PATH"
+    # if [[ $TOCFOSS == y ]]; then
+    #     OSS_SUBDIR=ntexdb-ranged cfoss "$RANGED_PDF_PATH"
+    # fi
+    RANGED_NAME="$RANGED_NAME" pdfrange "$REALPATH" "$PAGES_RANGE"
+fi
+
+

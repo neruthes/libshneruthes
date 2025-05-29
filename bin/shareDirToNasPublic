@@ -1,0 +1,106 @@
+#!/bin/bash
+
+
+
+if [[ $1 == -h ]]; then
+    echo "Usage:
+
+    shareDirToNasPublic  [-h|-e|-d|-t|-a]
+
+Options:
+
+    -h                      Show this help message.
+    -e | --empty            Empty DEST first, before sending files.
+    -t | --tmp              Append 'TMP-' prefix in directory name.
+    -a | --all              Send all files, otherwise send '/_dist' only.
+"
+    exit 0
+fi
+
+
+
+RSYNC_ARGS="-avxW --delete --mkpath --safe-links -i --partial --progress --exclude .git"
+
+
+### Parse argv
+if [[ " $* " == *' -e '* ]] || [[ " $* " == *' --empty '* ]]; then
+    f_EMPTY=y
+fi
+if [[ " $* " == *' -d '* ]] || [[ " $* " == *' --dry-run '* ]]; then
+    f_NOSYNC=y
+fi
+if [[ " $* " == *' -t '* ]] || [[ " $* " == *' --tmp '* ]]; then
+    f_TMP=y
+fi
+if [[ " $* " == *' -a '* ]] || [[ " $* " == *' --all '* ]]; then
+    f_SENDALL=y
+fi
+if [[ " $* " == *' -A '* ]] || [[ " $* " == *' --ALL '* ]]; then
+    f_SENDALL_with_hidden=y
+fi
+if [[ " $* " == *' -v '* ]] || [[ " $* " == *' --verbose '* ]]; then
+    RSYNC_ARGS="$RSYNC_ARGS -v"
+fi
+
+
+
+
+INDIRPATH="$PWD"
+if [[ -e "$1" ]]; then
+    INDIRPATH="$(realpath "$1")"
+fi
+
+FINAL_HASH="$(echo "$USER:NDLT7:$INDIRPATH" | sha256sum | cut -c1-24)"
+
+if [[ $f_TMP == y ]]; then
+    DIRNAME_PREFIX="TMP-$(date +%Y.%m.%d)--$DIRNAME_PREFIX"
+fi
+RDIRNAME="$DIRNAME_PREFIX$(basename "$INDIRPATH")-$FINAL_HASH"
+
+
+if [[ -z "$RSYNC_INCLUDE_LIST" ]]; then
+    RSYNC_INCLUDE_LIST="+ _dist
+- .git"
+fi
+if [[ -e ".rsync_include_list" ]]; then
+    RSYNC_INCLUDE_LIST="$(cat .rsync_include_list)"
+fi
+if [[ $f_SENDALL == y ]]; then
+    RSYNC_INCLUDE_LIST=""
+fi
+if [[ $f_SENDALL_with_hidden == y ]]; then
+    RSYNC_INCLUDE_LIST="+ /*
++ /.*"
+fi
+if [[ $f_SENDALL_with_hidden != y ]]; then
+    RSYNC_ARGS="$RSYNC_ARGS --exclude '.*'"
+fi
+
+
+dests_list="NDLT6G:/mnt/NEPd3_Caster/LS/NAS_public/$RDIRNAME/
+NDLT7:/mnt/NEPd4_Intel660p/LS/neruthes/ndlt7-nas-public/$RDIRNAME/"
+# for RSYNC_DEST in $dests_list; do
+while read -r RSYNC_DEST; do
+    if [[ $f_NOSYNC != y ]]; then # Should run rsync
+        if [[ $f_EMPTY == y ]]; then # 
+            EMPTYDIR="/tmp/emptydir.$USER.$RANDOM$RANDOM$RANDOM$RANDOM"
+            mkdir -p "$EMPTYDIR"
+            rsync $RSYNC_ARGS \
+                "$EMPTYDIR/" \
+                "$RSYNC_DEST"
+            rm -rf "$EMPTYDIR"
+        fi
+        rsync $RSYNC_ARGS "$INDIRPATH/" "$RSYNC_DEST" \
+            --include-from=- <<< "$RSYNC_INCLUDE_LIST" &
+        # echo "$RSYNC_INCLUDE_LIST"
+    fi
+done <<< "$dests_list"
+
+
+
+echo "https://nas-public.neruthes.xyz/$RDIRNAME/"
+echo "https://ndlt7-nas-public.neruthes.xyz/$RDIRNAME/"
+wait
+
+echo "https://nas-public.neruthes.xyz/$RDIRNAME/"
+echo "https://ndlt7-nas-public.neruthes.xyz/$RDIRNAME/"

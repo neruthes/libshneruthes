@@ -1,0 +1,45 @@
+#!/bin/bash
+
+function _processfile() {
+    FN="$1"
+    FILEPATH="$(realpath "$FN")"
+    grep -qs '/.tbcache/' <<< "$FILEPATH" && return 0
+    FILEDIR="$(dirname "$FILEPATH")"
+    FILEBASENAME="$(basename "$FILEPATH")"
+    TBCACHEPATH="$FILEDIR/.tbcache/$FILEBASENAME"
+    mkdir -p "$FILEDIR/.tbcache"
+    # echo " >  $FN  > TBCACHEPATH=$TBCACHEPATH"
+    if [[ ! -e "$TBCACHEPATH" ]]; then
+        # echo "     no thunbnail found"
+        echo "[INFO] Generating $TBCACHEPATH"
+        # paral
+        convert "$FILEPATH" -resize x700 -quality 70 "$TBCACHEPATH" &
+        COUNT=$((COUNT+1))
+    fi
+}
+
+REPODIR="$1"
+cd "$REPODIR"
+
+
+COUNT=0
+while read -r FN; do
+    _processfile "$FN"
+done < <(find . -name '*.png' -o -name '*.jpg')
+
+wait
+
+echo "[INFO] Generated thumbnail cache for $COUNT images."
+
+find "$PWD" -type d -name '.tbcache' | while read -r tbdir; do
+    # echo "  tbdir = $tbdir"
+    cd "$tbdir"
+    ls | while read -r tbpath; do
+        rawimgpath="../$tbpath"
+        if [[ ! -e $rawimgpath ]]; then
+            echo "[WARNING] Raw file '$rawimgpath' no longer exists. Deleting thumbnail '$tbpath'."
+            rm -v "$tbpath"
+        fi
+    done
+done
+

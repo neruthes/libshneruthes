@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# arg1: Target Device
+TargetDevice=$1
+# arg1: Manually specified scope
+ArgAddrScope=$2
+
+### Decide Username
+SSHUsername="$USER"
+
+### Decide Address Scope
+if [[ ${TargetDevice:0:2} == "VS" ]]; then
+    AddrScope="wan.neruthes.xyz"
+else
+    if [[ -z "$ArgAddrScope" ]]; then
+        AddrScope="lan.neruthes.xyz"
+    else
+        AddrScope="$ArgAddrScope.neruthes.xyz"
+    fi
+fi
+UsernameColor=118
+
+echo ""
+printf "Establishing SSH connection: \e[38;5;${UsernameColor}m${SSHUsername}\e[0m @ \e[38;5;81mND${TargetDevice}.${AddrScope}\e[0m"
+echo ""
+echo ""
+
+if [[ -r "$HOME/.ssh/$HOSTNAME" ]]; then
+    ### Prefer the keypair which is named after the hostname
+    exec ssh -i "$HOME/.ssh/$HOSTNAME" "${SSHUsername}@ND${TargetDevice}.${AddrScope}"
+else
+    exec ssh "${SSHUsername}@ND${TargetDevice}.${AddrScope}"
+fi

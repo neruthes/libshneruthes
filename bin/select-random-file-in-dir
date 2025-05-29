@@ -1,0 +1,18 @@
+#!/usr/bin/node
+
+const fs = require('fs');
+const child_process = require('child_process');
+
+const mydir = process.argv[2];
+
+const getFilesList = function (source) {
+    return fs.readdirSync(source, { withFileTypes: true })
+        .filter(node => !node.isDirectory())
+        .map(node => node.name)
+        .filter(nodeName => nodeName[0] !== '.');
+};
+
+const filesList = getFilesList(mydir);
+const r = Math.floor(Math.random() * filesList.length);
+
+console.log(filesList[r]);

@@ -1,0 +1,40 @@
+#!/bin/bash
+
+mkdir ~/.tmp > /dev/null 2>&1
+echo "Publishing WAN DDNS..."
+
+CURL_LOG="$HOME/.tmp/NDevSync-wanddns--43a78eb1af006c5afae3b4181c2b9550.txt"
+
+IPCACHEFILE="/tmp/getwanip.$USER"
+if [[ ! -e $IPCACHEFILE ]]; then
+    echo "Retrieving IP address..."
+    getwanip
+fi
+
+
+### Fetch IP address
+MY_WAN_IP_ADDR="$(getwanip)"
+
+
+### Abort if executed too frequently
+DATEOLD="$(date -r "$CURL_LOG" +%s 2>/dev/null)"
+DATENOW="$(date +%s)"
+if [[ $((DATENOW-DATEOLD)) -lt $((60)) ]] && [[ -z "$FORCE" ]]; then
+    echo "No need to update. $((DATENOW-DATEOLD)) seconds since last push."
+    exit 0
+fi
+
+
+
+### Actually push to Cloudflare
+curl --show-error -s -X PUT "https://api.cloudflare.com/client/v4/zones/cef23400ccfef7aa9511988f2e27b181/dns_records/43a78eb1af006c5afae3b4181c2b9550" \
+    -H "Authorization: Bearer $(pasm p token.cloudflare.OmniDnsToken)" \
+    -H "Content-Type: application/json" \
+    --data "{\"type\":\"A\",\"name\":\"homeddns\",\"content\":\"$MY_WAN_IP_ADDR\",\"ttl\":120,\"proxied\":false}" > $CURL_LOG
+
+if [[ ! -z "$(grep 'success":true' "$CURL_LOG")" ]]; then
+    echo "[INFO] Updated succesfully"
+else
+    echo "[ERROR] Something happened."
+    cat "$CURL_LOG"
+fi

@@ -1,0 +1,63 @@
+#!/bin/bash
+
+
+# Expected environment variables:
+#       [Name]          [Example]
+#       CF_ZONE         9fb92eab42c54713a3740ff58799777a
+#       CF_EID          46853afae3b41b5838a86d2e27198fef
+#       CF_TOKEN        030731057009414dac4860bec4f2ae89
+#       DNS_TYPE        A
+#       DNS_KEY         nas
+#       DNS_VALUE       127.0.0.1
+
+mkdir ~/.tmp > /dev/null 2>&1
+echo "Updating Cloudflare DNS..."
+
+TASK_HASH="$(sha256sum <<< "$CF_ZONE:$CF_EID" | cut -c1-22)"
+CURL_LOG="/tmp/.cfDnsUpdate.$USER.$TASK_HASH.log"
+VALUE_CACHE="/tmp/.cfDnsUpdate.$USER.$TASK_HASH.last_val_cache"
+
+
+### Abort if executed too frequently
+DATEOLD="$(date -r "$CURL_LOG" +%s 2>/dev/null)"
+DATENOW="$(date +%s)"
+if [[ $((DATENOW-DATEOLD)) -lt 60 ]] && [[ -z "$FORCE" ]]; then  ### Frequency is too high
+    if [[ "$(cat $VALUE_CACHE)" == "$DNS_VALUE" ]]; then
+        ### Same with cache
+        echo "No need to update. $((DATENOW-DATEOLD)) seconds since last push."
+        exit 0
+    else
+        ### But the IP changed!
+        printf ''
+    fi
+fi
+
+printf "$DNS_VALUE" > $VALUE_CACHE
+
+
+JsonReqBody="$(sed "s/'/\"/g" <<< "
+{
+    'type': '$DNS_TYPE',
+    'name': '$DNS_KEY',
+    'content': '$DNS_VALUE',
+    'ttl': 60,
+    'proxied': false
+}")"
+echo "$JsonReqBody"
+
+
+### Actually push to Cloudflare
+if [[ $PROXY == y ]]; then
+    PROXYCHAINS=proxychains
+fi
+$PROXYCHAINS curl --show-error -s -X PUT "https://api.cloudflare.com/client/v4/zones/$CF_ZONE/dns_records/$CF_EID" \
+    -H "Authorization: Bearer $CF_TOKEN" \
+    -H "Content-Type: application/json" \
+    --data "$JsonReqBody" > $CURL_LOG
+
+if [[ ! -z "$(grep 'success":true' "$CURL_LOG")" ]]; then
+    echo "[INFO] Updated succesfully"
+else
+    echo "[ERROR] Something happened."
+    cat "$CURL_LOG"
+fi

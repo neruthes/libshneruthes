@@ -1,0 +1,18 @@
+#!/bin/bash
+
+function _dosync() {
+    mkdir -p /tmp/http
+    rsync -av   /tmp/http/   NDLT6G:/mnt/NEPd3_Caster/LS/NAS/_dev/NDLT7/tmp/http/  $RSYNC_OPTS
+}
+
+RSYNC_OPTS="$1"
+
+case $HOSTNAME in
+    NDLT7)
+        _dosync
+        ;;
+    *)
+        echo "[ERROR] Can only do this on NDLT7."
+        ;;
+esac
+

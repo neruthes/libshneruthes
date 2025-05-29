@@ -1,0 +1,54 @@
+#!/bin/bash
+
+#
+# renamerd
+#
+# Copyright (c) 2023 Neruthes.
+# This program is a free software, published with GNU GPL 2.0.
+#
+
+
+srcdir="$1"
+destdir="$2"
+[[ -z "$NAMER_PROG" ]] && export NAMER_PROG=default_namer
+
+if [[ -z $2 ]]; then
+    echo "Usage:  renamerd  srcdir  destdir"
+    echo "  A daemon who moves files from srcdir to destdir."
+    exit 1
+fi
+
+export SAFE_SEED="$(cat /dev/stdin /etc/fstab <<< "$USER:$HOSTNAME:$PATH:$MANPATH" | sha256sum | cut -c1-30)"
+
+
+function default_namer() {
+    rn="$1"
+    rn_base="$(basename "$rn")"
+    file_hash="$(sha256sum "$rn" | cut -d' ' -f1)"
+    safe_hash="$(sha256sum <<< "$file_hash:$SAFE_SEED" | cut -c1-48 | xxd -r -p - | base64 | tr '+/=' '0')"
+    echo "$(date +%F | tr -d '-').$safe_hash.$rn_base"
+}
+
+function process_file() {
+    rn="$(realpath $fn)"
+    time_now="$(date +%s)"
+    time_threshold="$((time_now-60))"
+    rn_base="$(basename "$rn")"
+    if [[ "$(date -r "$rn" +%s)" -gt "$time_threshold" ]] && [[ "$rn_base" == tmp* ]]; then
+        ### Wait 'tmp*' files for 100s before moving.
+        ### The file is still too new. Is the uploading really finished?
+        return 0
+    fi
+    dest_fn="$($NAMER_PROG "$rn")"
+    dest_path="$destdir/$dest_fn"
+    mv -vf "$rn" "$dest_path"
+    chmod 664 "$dest_path"
+}
+
+while true; do
+    IFS=$'\n'
+    for fn in $(find "$srcdir" -type f); do
+        process_file "$fn"
+    done
+    sleep 5
+done

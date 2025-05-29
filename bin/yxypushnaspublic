@@ -1,0 +1,69 @@
+#!/bin/bash
+
+
+
+
+if [[ $1 == -h ]]; then
+    echo "Usage:
+
+    yxypushnaspublic  [-h|-a|-e|-d|-t]
+
+Options:
+
+    -h          Show this help message.
+    -a          Send all files, otherwise send '/_dist' only.
+    -e          Empty DEST first, before sending files.
+    -d          Dry run, do not actually send.
+    -t          Append TMP-{YYYY}.{MM}.{DD} prefix.
+    -l          Make ARTIFACTS.md for list of files.
+"
+    exit 0
+fi
+
+
+
+shareDirToNasPublic_ARGV=""
+
+export RSYNC_INCLUDE_LIST="+ /_dist
+- /_dist/tex-tmp
+- /*"
+
+if [[ " $@ " == *" -a "* ]]; then # all
+    shareDirToNasPublic_ARGV="$shareDirToNasPublic_ARGV -a"
+fi
+if [[ " $@ " == *" -e "* ]]; then # empty
+    shareDirToNasPublic_ARGV="$shareDirToNasPublic_ARGV -e"
+fi
+if [[ " $@ " == *" -t "* ]]; then # empty
+    shareDirToNasPublic_ARGV="$shareDirToNasPublic_ARGV -t"
+fi
+
+
+export DIRNAME_PREFIX="yxydist-"
+
+
+
+### Run rsync
+if [[ " $@ " == *" -d "* ]]; then # dry
+    echo "[INFO] This is only a dry run..."
+    shareDirToNasPublic -d $shareDirToNasPublic_ARGV
+else
+    shareDirToNasPublic $shareDirToNasPublic_ARGV
+fi
+
+
+PREFIX="$(shareDirToNasPublic -d $shareDirToNasPublic_ARGV | tail -n1)"
+
+
+
+if [[ " $@ " == *" -l "* ]]; then # list
+    function buildListMd() {
+        for i in $(find _dist -name '*.pdf' | sort); do
+            echo "- [${i:6}](${PREFIX}${i})"
+        done
+    }
+    printf "# Artifacts\n\n" > ARTIFACTS.md
+    buildListMd >> ARTIFACTS.md
+fi
+
+echo "URL = ${PREFIX}_dist/"

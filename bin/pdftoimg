@@ -1,0 +1,35 @@
+#!/bin/bash
+
+[[ -z "$USE_POPPLER" ]] && USE_POPPLER=y # Can this work well?
+
+inFilePath="$1"
+outFileDir="$2"
+TYPE="$3"
+if [[ -z "$outFileDir" ]]; then
+    # outFileDir="/tmp/pdftoimg"
+    outFileDir="$(dirname "$inFilePath")"
+fi
+if [[ -z "$TYPE" ]]; then
+    TYPE=jpg
+fi
+if [[ -z $DPI ]]; then
+    DPI=300
+fi
+if [[ -z $QUALITY ]]; then
+    QUALITY=91
+fi
+mkdir -p "$outFileDir"
+
+
+if [[ -z "$OUTFN" ]]; then
+    OUTFN="$(basename "$inFilePath")"
+fi
+outputPath="$outFileDir/$OUTFN.$TYPE"
+
+if [[ "$USE_POPPLER" == y ]]; then
+    pdftoppm -"$TYPE" -r "$DPI" "$inFilePath" "$outFileDir/$OUTFN"
+    realpath "$outFileDir/$OUTFN"*".$TYPE"
+else
+    magick -units PixelsPerInch -density "$DPI" -quality "$QUALITY" "$inFilePath" -background white -alpha remove -alpha off  $CONVERT_ARGS  "$outputPath"
+    realpath "$outputPath"
+fi

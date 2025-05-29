@@ -1,0 +1,19 @@
+#!/bin/bash
+
+TMPBASE="/tmp/NDev-Vars.$USER"
+mkdir -p "$TMPBASE"
+
+if [[ $1 = "get" ]]; then
+    echo "$(cat "$TMPBASE/$2")"
+    exit 0
+fi
+
+if [[ $1 = "set" ]]; then
+    echo "$3" > "$TMPBASE/$2"
+    exit 0
+fi
+
+if [[ $1 = "del" ]]; then
+    rm "$TMPBASE/$2"
+    exit 0
+fi

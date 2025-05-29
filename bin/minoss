@@ -1,0 +1,10 @@
+#!/bin/bash
+
+[[ -z $WRITE_OSSLIST ]] && WRITE_OSSLIST=n
+
+OSS_URL_PREFIX="https://minio.neruthes.xyz/oss"
+
+source $(dirname $0)/libossupload-core.lib.sh
+
+mc cp "$1" "NDLT6G/oss/$FIANL_OBJ_KEY"
+

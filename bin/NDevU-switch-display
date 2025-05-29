@@ -1,0 +1,42 @@
+#!/bin/bash
+
+if [[ $(uname) != "Linux" ]]; then
+    exit 1
+fi
+
+# source $HOME/.bashrc >/dev/null 2>&1
+
+echo "Switching display mode..."
+CurrentCase="$(NDevVar get switch-display--currentCase)"
+
+if [[ "$1" = "set" ]]; then
+    CurrentCase="$2";
+fi
+
+if [[ $1 = "" ]]; then
+    case $CurrentCase in
+        "Native")
+            CurrentCase="HDMI1"
+            ;;
+        "HDMI1")
+            CurrentCase="Mirror"
+            ;;
+        *)
+            CurrentCase="Native"
+            ;;
+    esac
+fi
+
+echo "Switching to $CurrentCase"
+SCRIPT_PATH="$DEV_HOME_DIR/NDevShellRC/dev-local/$HOSTNAME/screenlayout/base-$CurrentCase.sh"
+if [[ -e "$SCRIPT_PATH" ]]; then
+    bash "$SCRIPT_PATH"
+else
+    echo "Cannot find dev-local script!" >&2
+fi
+NDevVar set switch-display--currentCase $CurrentCase
+
+i3 restart
+wpreload
+killall fcitx
+i3 exec fcitx

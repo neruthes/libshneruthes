@@ -1,0 +1,34 @@
+#!/bin/bash
+
+
+mkdir -p /tmp/http/pdfrange
+chmod 777 /tmp/http/pdfrange
+
+
+REALPATH="$1"
+PAGES_RANGE="$2"
+OUTDIR="$3"
+PDFFN="$(basename "$REALPATH")"
+
+if [[ -z "$OUTDIR" ]]; then
+    OUTDIR="/tmp/http/pdfrange"
+fi
+
+
+if [[ -z "$1" ]]; then
+    echo "Usage: pdfrange  {PDF_PATH}  {START}-{END}"
+    exit 0
+fi
+
+if [[ -z "$RANGED_NAME" ]]; then
+    RANGED_PDF_PATH="$OUTDIR/${PDFFN/.pdf/}_page$PAGES_RANGE.pdf"
+else
+    RANGED_PDF_PATH="$OUTDIR/$RANGED_NAME.pdf"
+fi
+
+pdftk "$REALPATH" cat $PAGES_RANGE output "$RANGED_PDF_PATH"
+du -h "$(realpath "$RANGED_PDF_PATH")"
+
+if [[ $OSS == y ]]; then
+    OSS_SUBDIR=pdfrange cfoss "$RANGED_PDF_PATH"
+fi

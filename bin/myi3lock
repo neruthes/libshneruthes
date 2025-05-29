@@ -1,0 +1,5 @@
+#!/bin/bash
+
+# convert /home/neruthes/DEV/neruthes.github.io/neruthes-forceCircle-padded-transparent.small.png -gravity Center -background black -extent "3840x2160" /home/neruthes/PIC/LOCK.png
+
+betterlockscreen -l

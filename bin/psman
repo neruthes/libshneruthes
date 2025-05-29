@@ -1,0 +1,168 @@
+#!/bin/bash
+
+#
+# PSMAN
+# Portable Service Manager
+#
+# Copyright (c) 2021 Neruthes.
+# Published under GNU GPLv2.
+#
+
+mkdir -p "$HOME/.config/psman"
+
+CONFFILE="$HOME/.config/psman/conf"
+touch "$CONFFILE"
+
+if [[ -e "$CONFFILE" ]]; then
+    source "${CONFFILE}"
+fi
+
+if [[ -z "$svcdir" ]]; then
+    svcdir="$HOME/.config/pservices"
+fi
+RUNLEVELDIR="$svcdir/.rl"
+mkdir -p "$RUNLEVELDIR"
+RUNLEVELS=""
+for FN in $(ls "$RUNLEVELDIR/"*); do
+    RUNLEVEL_NAME="$(basename $FN)"
+    RUNLEVELS="${RUNLEVELS}${RUNLEVEL_NAME} "
+done
+
+function _findservicerunlevel() {
+    SVCNAME="$1"
+    FOUND=n
+    TARGET=""
+    ### Iterate
+    # echo "[DEBUG] _findservicerunlevel $SVCNAME">&2
+    # echo "[DEBUG] RUNLEVELS=$RUNLEVELS">&2
+    for RL in $RUNLEVELS; do
+        # echo "?????"
+        if [[ "$(grep "^$SVCNAME\$" "$RUNLEVELDIR/$RL")" != "" ]]; then
+            echo "$RL"
+            return 0
+        fi
+    done
+    echo "manual"
+}
+function _checkServiceStatus() {
+    SVCNAME="$1"
+    # export SVCPID="$(cat /tmp/$SVCNAME-$USER.pid 2>/dev/null)"
+    export SVCPID="$(cat $PIDFILE 2>/dev/null)"
+    if [[ "$SVCPID" == "" ]]; then
+        # Process is known to be dead if the getpid function returns an empty string
+        echo "stopped"
+    else
+        # Process should be running...?
+        if [[ -e "/proc/$SVCPID" ]]; then
+            echo "started"
+        else
+            # Process is dead, but stopped or crashed? // TODO
+            echo "stopped"
+        fi
+    fi
+}
+function _requireStateNot() {
+    SVCNAME="$1"
+    REQUIRED_STATE="$2"
+    if [[ "$(_checkServiceStatus "$SVCNAME")" == "$REQUIRED_STATE" ]]; then
+        echo "[ERROR] Service '$SVCNAME' has already been ${REQUIRED_STATE}."
+        exit 1
+    fi
+}
+
+function _color_red() {
+    printf "\e[31m\e[1m$1\e[0m"
+}
+function _color_green() {
+    printf "\e[92m\e[1m$1\e[0m"
+}
+function _color_cyan() {
+    printf "\e[96m\e[1m$1\e[0m"
+}
+################################################
+### Main
+################################################
+SVCNAME="$1"
+SVCACTION="$2"
+
+function _printServiceStatusLine() {
+    SVCNAME="$1"
+    export SVCNAME=$SVCNAME
+    export PIDFILE=/tmp/$SVCNAME-$USER.pid
+    export LOGDIR=/tmp/.psman-log-$USER
+    export LOGFILE=$LOGDIR/$SVCNAME
+    SVCSTATUS="$(_checkServiceStatus "$SVCNAME")"
+    export SVCPID="$(cat $PIDFILE 2>/dev/null)"
+    if [[ "$SVCSTATUS" == "stopped" ]]; then
+        if [[ "$HIDE_STOPPED" == "true" ]]; then
+            return 0
+        fi
+        echo "[ $(_color_red stopped) ]   $SVCNAME"
+    fi
+    if [[ "$SVCSTATUS" == "started" ]]; then
+        echo "[ $(_color_green started) ]   $(printf "%-*s" 50 $SVCNAME)   $SVCPID"
+    fi
+}
+function _svcaction() {
+    SVCNAME="$1"
+    SVCACTION="$2"
+    
+    if [[ "$SVCACTION" == "start" ]]; then
+        _requireStateNot "$SVCNAME" started
+    fi
+    if [[ "$SVCACTION" == "stop" ]]; then
+        _requireStateNot "$SVCNAME" stopped
+    fi
+
+    # $SVCACTION
+    bash -c "source '$svcdir/$SVCNAME' && $SVCACTION"
+}
+
+
+# Status overview
+if [[ -z $1 ]]; then
+    for RUNLEVEL in $RUNLEVELS; do
+        echo "Runlevel: $(_color_cyan $RUNLEVEL)"
+        for SVCNAME in $(ls $svcdir); do
+            if [[ "$(_findservicerunlevel "$SVCNAME")" == "$RUNLEVEL" ]]; then
+                _printServiceStatusLine "$SVCNAME"
+            fi
+        done
+        echo ""
+    done
+
+    echo "Runlevel: $(_color_cyan manual)"
+    for SVCNAME in $(ls $svcdir); do
+        if [[ "$(_findservicerunlevel "$SVCNAME")" == "manual" ]]; then
+            HIDE_STOPPED=true _printServiceStatusLine "$SVCNAME"
+        fi
+    done
+    echo ""
+    exit 0
+fi
+
+# Operation
+
+if [[ -e "$svcdir/$SVCNAME" ]]; then
+    export SVCNAME=$SVCNAME
+    export PIDFILE=/tmp/$SVCNAME-$USER.pid
+    export LOGDIR=/tmp/.psman-log-$USER
+    export LOGFILE=$LOGDIR/$SVCNAME
+    mkdir -p $LOGDIR
+
+    case "$SVCACTION" in
+        start|stop|restart)
+            _svcaction $SVCNAME $SVCACTION
+            sleep 0.6
+            _printServiceStatusLine "$SVCNAME"
+            ;;
+        tail)
+            tail -f "$LOGFILE"
+            ;;
+        *)
+            _svcaction $SVCNAME S_$SVCACTION
+            ;;
+    esac
+else
+    echo "[ERROR] Cannot find service '$SVCNAME'."
+fi

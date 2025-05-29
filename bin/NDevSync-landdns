@@ -1,0 +1,54 @@
+#!/bin/bash
+
+TMP=/tmp/landdns-`uuidgen`
+
+### CFToken, DeviceID, Interface
+DEVIFS="
+db2e5c507935b0a0426cdb46d5209ed9 NDLT6   en0\n
+5d447ddaa935b0ad2a5378896f7047ca NDLT7   wlp0s20f3\n
+74971549ecc69a7a45eedc873725c2af NDPS1   wlx08beac024b46\n
+"
+
+
+MYDEVIF_1=$(echo -e "$DEVIFS" | grep `hostname`)
+MYDEVIF=${MYDEVIF_1:41}
+MYDEVCFID=${MYDEVIF_1:0:32}
+
+echo 'Publishing LAN DDNS...'
+
+### Get LAN IP Address
+ifconfig $MYDEVIF | grep 'inet ' > $TMP
+sed -i.1 "s/.*inet //g" $TMP
+sed -i.1 "s/ net.*//g" $TMP
+MY_LAN_IP_ADDR=`cat $TMP`
+#echo $MY_LAN_IP_ADDR
+
+
+### Push to GitHub
+# if [[ -r $DEV_HOME_DIR/NDevMgr/LanDDNS/$HOSTNAME.txt ]]; then
+    # echo "Pushing to GitHub..."
+    # echo $MY_LAN_IP_ADDR > $DEV_HOME_DIR/NDevMgr/LanDDNS/$HOSTNAME.txt
+    # cd $DEV_HOME_DIR/NDevMgr
+    # source $DEV_HOME_DIR/NDevShellRC/components/git.sh > /dev/null 2>&1
+    # git pull origin master
+    # git add .
+    # git commit -m "LAN DDNS Update: $HOSTNAME @ $(date)"
+    # git push origin master
+# fi
+
+
+### Push to Cloudflare
+echo "Pushing to Cloudflare..."
+curl --show-error -s -X PUT "https://api.cloudflare.com/client/v4/zones/cef23400ccfef7aa9511988f2e27b181/dns_records/${MYDEVCFID}" \
+    -H "Authorization: Bearer `pasm p token.cloudflare.OmniDnsToken`" \
+    -H "Content-Type: application/json" \
+    --data "{\"type\":\"A\",\"name\":\"$HOSTNAME.lan\",\"content\":\"$MY_LAN_IP_ADDR\",\"ttl\":120,\"proxied\":false}" > $TMP.2
+    # -H "X-Auth-Key: `pasm p token.cloudflare.OmniDnsToken`" \
+    # -H "X-Auth-Email: joyneop@gmail.com" \
+cat $TMP.2
+echo ""
+echo ""
+
+### End
+echo "Done"
+rm $TMP $TMP.1 $TMP.2 2> /dev/null

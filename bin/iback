@@ -1,0 +1,10 @@
+#!/bin/bash
+
+case $HOSTNAME in
+    NDLT7)
+        ir firefox-bin
+        ir telegram-desktop
+        vscodium
+        discordd
+        ;;
+esac
