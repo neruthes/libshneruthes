@@ -14,7 +14,7 @@ yarn add github:neruthes/libshneruthes
 Add to PATH in make.sh:
 
 ```
-export PATH="$PWD/node_modules/libshneruthes/bin:$PATH"
+export PATH="$PATH:$PWD/node_modules/libshneruthes/bin"
 ```
 
 
