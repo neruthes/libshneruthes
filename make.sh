@@ -8,7 +8,8 @@ srcdir="$HOME/DEV/NDevShellRC/bin"
 dstdir="$HOME/DEV/libshneruthes/bin"
 
 if [[ -d "$srcdir" ]] && [[ -d "$dstdir" ]]; then
-    rsync -auvpx --dry-run "$srcdir/" "$dstdir/"
-    echo "[INFO] Feeling safe? Run the following command to make it happen:"
-    echo '        $  ' rsync -auvpx "$srcdir/" "$dstdir/"
+    #rsync -auvpx --dry-run "$srcdir/" "$dstdir/"
+    rsync -auvpx --delete  "$srcdir/" "$dstdir/"
+    #echo "[INFO] Feeling safe? Run the following command to make it happen:"
+    #echo '        $  ' rsync -auvpx "$srcdir/" "$dstdir/"
 fi
