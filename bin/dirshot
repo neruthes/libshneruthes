@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+#
+# dirshot — reproducible plain-text snapshot of a git repo's tracked files,
+# intended as a timestamped proof artifact for copyright/provenance claims.
+#
+# Usage:
+#   dirshot G      generate dirshot.txt + dirshot.zip at the repo root
+#   dirshot V      verify ./dirshot.txt against the current working tree
+#
+# Generator (G) mode:
+#   1. Confirms $PWD is inside a git repo, cds to the repo root.
+#   2. Records HEAD's commit hash and commit date (deterministic — tied to
+#      the commit object, not wall-clock time, so re-running G against the
+#      same commit reproduces a byte-identical dirshot.txt).
+#   3. sha256sums every git-tracked file, sorted + de-duplicated.
+#   4. Streams the result ("stash") to stdout and to <repo-root>/dirshot.txt.
+#   5. Zips all tracked files into <repo-root>/dirshot.zip.
+#
+# Verifier (V) mode:
+#   1. Reads ./dirshot.txt.
+#   2. Re-hashes every file it lists, reporting OK / MISMATCH / MISSING.
+#   3. Prints a final "<ok>/<total> files verified and <unmatch> files unmatch"
+#      tally and exits non-zero if anything failed to verify.
+#
+set -euo pipefail
+
+PROG="dirshot"
+OUT_TXT="dirshot.txt"
+OUT_ZIP="dirshot.zip"
+
+die() { echo "${PROG}: error: $*" >&2; exit 1; }
+
+usage() {
+  cat <<EOF
+usage: $PROG G|V
+
+  G   generate dirshot.txt + dirshot.zip at the repo root
+  V   verify \$PWD/dirshot.txt against the current working tree
+EOF
+  exit 1
+}
+
+# --- portable sha256: prints "<hash>  <path>" like sha256sum -------------
+sha256_of() {
+  local f=$1
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum -- "$f"
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 -- "$f"
+  else
+    die "need sha256sum or shasum installed"
+  fi
+}
+
+# ==========================================================================
+# GENERATOR
+# ==========================================================================
+do_generate() {
+  command -v git >/dev/null 2>&1 || die "git not found"
+  git rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+    || die "not inside a git repository"
+
+  local repo_root
+  repo_root=$(git rev-parse --show-toplevel) || die "could not resolve repo root"
+  cd "$repo_root"
+
+  local commit commit_date
+  commit=$(git rev-parse HEAD 2>/dev/null) \
+    || die "HEAD does not resolve (repo has no commits yet)"
+  commit_date=$(git show -s --format=%cI HEAD)
+
+  if [[ -n "$(git status --porcelain)" ]]; then
+    echo "$PROG: warning: working tree has uncommitted changes;" \
+         "snapshot reflects files on disk, not HEAD" >&2
+  fi
+
+  # NUL-delimited so filenames with spaces/newlines are handled safely
+  local -a files=()
+  while IFS= read -r -d '' f; do
+    files+=("$f")
+  done < <(git ls-files -z)
+
+  [[ ${#files[@]} -gt 0 ]] || die "no git-tracked files found"
+
+  local stash
+  stash=$(mktemp)
+  trap 'rm -f "$stash"' RETURN
+
+  {
+    echo "# dirshot v1"
+    echo "commit ${commit}"
+    echo "commit-date ${commit_date}"
+    for f in "${files[@]}"; do
+      if [[ -e "$f" ]]; then
+        sha256_of "$f"
+      else
+        echo "$PROG: warning: tracked file missing from disk, skipping: $f" >&2
+      fi
+    done | sort -u
+  } > "$stash"
+
+  # dump stash stream to stdout, then save it to dirshot.txt
+  cat "$stash"
+  cp "$stash" "$OUT_TXT"
+  echo "$PROG: wrote $repo_root/$OUT_TXT" >&2
+
+  # zip all tracked files
+  rm -f "$OUT_ZIP"
+  command -v zip >/dev/null 2>&1 || die "zip not found; install zip to produce $OUT_ZIP"
+  zip -q -X "$OUT_ZIP" -- "${files[@]}"
+  echo "$PROG: wrote $repo_root/$OUT_ZIP" >&2
+}
+
+# ==========================================================================
+# VERIFIER
+# ==========================================================================
+do_verify() {
+  local txt="$PWD/$OUT_TXT"
+  [[ -f "$txt" ]] || die "$txt not found"
+
+  local total=0 ok=0 unmatch=0
+  local line hash path actual
+
+  while IFS= read -r line; do
+    # a record line is "<64-hex-char sha256>" + separator(s) + "<path>"
+    [[ "$line" =~ ^([0-9a-fA-F]{64})[[:space:]\*]+(.*)$ ]] || continue
+    hash="${BASH_REMATCH[1]}"
+    path="${BASH_REMATCH[2]}"
+    total=$((total + 1))
+
+    if [[ ! -e "$path" ]]; then
+      echo "MISSING   $path"
+      unmatch=$((unmatch + 1))
+      continue
+    fi
+
+    actual=$(sha256_of "$path" | awk '{print $1}')
+    if [[ "$actual" == "$hash" ]]; then
+      echo "OK        $path"
+      ok=$((ok + 1))
+    else
+      echo "MISMATCH  $path"
+      unmatch=$((unmatch + 1))
+    fi
+  done < "$txt"
+
+  [[ "$total" -gt 0 ]] || die "no file entries found in $txt"
+
+  echo
+  echo "${ok}/${total} files verified and ${unmatch} files unmatch"
+
+  [[ "$unmatch" -eq 0 ]] || exit 2
+}
+
+# ==========================================================================
+[[ $# -eq 1 ]] || usage
+case "$1" in
+  G|g) do_generate ;;
+  V|v) do_verify ;;
+  *)   usage ;;
+esac
