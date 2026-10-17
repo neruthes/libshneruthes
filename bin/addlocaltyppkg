@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+#
+# addlocaltyppkg — install a Typst package from a Git repository
+# into the local Typst package directory.
+#
+# Usage:
+#   addlocaltyppkg <git-url>
+#
+# Env:
+#   ADD_LOCAL_TYP_PKG_PARTIAL=1   Use a blobless partial clone instead of
+#                                 a plain shallow clone. Only useful for
+#                                 very large monorepos; may trigger many
+#                                 small lazy fetches during checkout.
+
+set -euo pipefail
+
+usage() { echo "Usage: $0 <git-url>" >&2; exit 1; }
+
+typst_data_dir() {
+    case "$(uname -s)" in
+        Darwin) printf '%s\n' "$HOME/Library/Application Support" ;;
+        MINGW*|MSYS*|CYGWIN*) printf '%s\n' "${APPDATA:-$HOME/AppData/Roaming}" ;;
+        *) printf '%s\n' "${XDG_DATA_HOME:-$HOME/.local/share}" ;;
+    esac
+}
+
+toml_pkg_field() {
+    local file="$1" key="$2"
+    awk -v key="$key" '
+        /^[[:space:]]*\[package\][[:space:]]*$/ { in_pkg = 1; next }
+        /^[[:space:]]*\[/                      { in_pkg = 0 }
+        in_pkg && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+            sub(/^[^=]*=[[:space:]]*/, "")
+            sub(/[[:space:]]*#.*$/, "")
+            sub(/\r$/, "")
+            gsub(/^"|"$/, "")
+            gsub(/^\047|\047$/, "")
+            print; exit
+        }
+    ' "$file"
+}
+
+clone_shallow() {
+    local url="$1" dest="$2"
+    local common=(--depth 1 --single-branch --no-tags --no-checkout)
+    if [[ "${ADD_LOCAL_TYP_PKG_PARTIAL:-0}" == "1" ]]; then
+        # Blobless: small initial transfer, but checkout will lazily fetch
+        # each blob in the package (one round-trip per file on some git
+        # versions). Only worth it when the repo tree is huge.
+        git clone "${common[@]}" --filter=blob:none "$url" "$dest"
+    else
+        # Plain shallow: one pack containing all of HEAD's blobs. Fast,
+        # predictable, no lazy fetches. Bounded to HEAD (no history).
+        git clone "${common[@]}" "$url" "$dest"
+    fi
+}
+
+[[ $# -eq 1 ]] || usage
+repo_url="$1"
+
+for cmd in git rsync awk mktemp; do
+    command -v "$cmd" >/dev/null 2>&1 || {
+        echo "Error: required command not found: $cmd" >&2; exit 1
+    }
+done
+
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/addlocaltyppkg.XXXXXX")"
+trap 'rm -rf -- "$tmp_dir"' EXIT
+
+echo "Cloning $repo_url ..."
+clone_shallow "$repo_url" "$tmp_dir/repo"
+repo="$tmp_dir/repo"
+
+# Find shallowest typst.toml using tree objects only.
+manifest_rel="$(git -C "$repo" ls-tree -r --name-only HEAD \
+    | awk -F/ '$NF == "typst.toml" { if (min=="" || NF<min) { min=NF; line=$0 } } END { if (line) print line }')"
+
+[[ -n "$manifest_rel" ]] || { echo "Error: no typst.toml found in repository." >&2; exit 1; }
+pkg_root_rel="$(dirname "$manifest_rel")"
+
+# Materialize only the package directory.
+# Plain-shallow path: all blobs are already local, checkout is offline.
+# Partial path: this is where lazy per-blob fetches happen.
+if [[ "$pkg_root_rel" == "." ]]; then
+    git -C "$repo" checkout HEAD -- .
+else
+    git -C "$repo" checkout HEAD -- "$pkg_root_rel"
+fi
+
+manifest="$repo/$manifest_rel"
+pkg_name="$(toml_pkg_field "$manifest" name)"
+pkg_version="$(toml_pkg_field "$manifest" version)"
+[[ -n "$pkg_name" && -n "$pkg_version" ]] || {
+    echo "Error: typst.toml is missing [package] name or version." >&2; exit 1
+}
+
+dest="$(typst_data_dir)/typst/packages/local/$pkg_name/$pkg_version"
+echo "Installing $pkg_name:$pkg_version to $dest ..."
+mkdir -p "$dest"
+rsync -a --delete --exclude='.git' "$repo/$pkg_root_rel/" "$dest/"
+
+echo "Successfully installed $pkg_name:$pkg_version"
